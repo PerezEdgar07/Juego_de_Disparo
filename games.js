@@ -46,6 +46,12 @@ let currentLevel = 0;
 let gameState = "ready";
 let timerInterval = null;
 
+// Movimiento del enemigo
+let movimientoEnemigo = 0;
+let direccionEnemigo = 1;
+let tiempoAnterior = 0;
+let animationFrame = null;
+
 // ==========================================
 // ELEMENTOS HTML
 // ==========================================
@@ -80,6 +86,10 @@ const viewerBox = $("viewerBox");
 const modelViewer = $("mainViewer");
 const targetOverlay = $("targetOverlay");
 
+const crosshair =
+    viewerBox.querySelector(".crosshair") ||
+    document.querySelector(".crosshair");
+
 const arenaMessage = $("arena-message");
 const messageTitle = $("message-title");
 const messageText = $("message-text");
@@ -88,11 +98,48 @@ const startButton = $("start-button");
 const resetButton = $("reset-button");
 
 // ==========================================
+// CONTROL DE LA MIRA
+// ==========================================
+
+// Mover la mira siguiendo el mouse.
+viewerBox.addEventListener("pointermove", event => {
+
+    if (gameState !== "playing") return;
+
+    const rect = viewerBox.getBoundingClientRect();
+
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    crosshair.style.left = `${x}px`;
+    crosshair.style.top = `${y}px`;
+
+    crosshair.classList.add("active");
+});
+
+// Ocultar la mira al salir del escenario.
+viewerBox.addEventListener("pointerleave", () => {
+    crosshair.classList.remove("active");
+});
+
+// Mostrar u ocultar la mira según el estado.
+function actualizarMira() {
+
+    if (gameState === "playing") {
+        crosshair.classList.add("active");
+    } else {
+        crosshair.classList.remove("active");
+    }
+}
+
+// ==========================================
 // SONIDO DEL DISPARO
 // ==========================================
 
 function playLaserSound() {
+
     try {
+
         const AudioContextClass =
             window.AudioContext || window.webkitAudioContext;
 
@@ -149,46 +196,49 @@ function loadLevel(index) {
     const level = levels[index];
 
     levelTitle.textContent = level.title;
-
-    levelDescription.textContent =
-        level.description;
+    levelDescription.textContent = level.description;
 
     levelCounter.textContent =
         `0${index + 1} / 02`;
 
-    // Actualizar barra de progreso del nivel
     levelProgress.style.width =
         index === 0 ? "50%" : "100%";
 
-   // Cambiar modelo 3D
+    // Cambiar modelo 3D.
     modelViewer.src = level.model;
 
-// Ajustar el tamaño de la cámara según el nivel
-if (index === 0) {
-    // Nivel 1: Señor de la Guerra
-    modelViewer.setAttribute(
-        "camera-orbit",
-        "0deg 75deg 5m"
-    );
-} else {
-    // Nivel 2: Monstruo más pequeño
-    modelViewer.setAttribute(
-        "camera-orbit",
-        "0deg 75deg 15m"
-    );
-    modelViewer.scale = "0.5 0.5 0.5";
-}
+    // Ajustar cámara según el nivel.
+    if (index === 0) {
 
-    // Reiniciar resistencia y tiempo
+        modelViewer.setAttribute(
+            "camera-orbit",
+            "0deg 75deg 5m"
+        );
+
+        modelViewer.setAttribute(
+            "scale",
+            "1 1 1"
+        );
+
+    } else {
+
+        modelViewer.setAttribute(
+            "camera-orbit",
+            "0deg 75deg 15m"
+        );
+
+        modelViewer.setAttribute(
+            "scale",
+            "0.5 0.5 0.5"
+        );
+    }
+
+    // Reiniciar resistencia y tiempo.
     health = CONFIG.maxHealth;
-
     timeLeft = CONFIG.levelTime;
 
-    healthLabel.textContent =
-        "Salud del objeto";
-
-    targetStatus.textContent =
-        "OBJETIVO DETECTADO";
+    healthLabel.textContent = "Salud del objeto";
+    targetStatus.textContent = "OBJETIVO DETECTADO";
 
     updateHealthUI();
     updateTimerUI();
@@ -209,9 +259,7 @@ function updateStats() {
         : 0;
 
     accuracyEl.textContent = `${accuracy}%`;
-
-    accuracyBar.style.width =
-        `${accuracy}%`;
+    accuracyBar.style.width = `${accuracy}%`;
 }
 
 // ==========================================
@@ -244,8 +292,7 @@ function updateHealthUI() {
     const percentage =
         (health / CONFIG.maxHealth) * 100;
 
-    healthBar.style.width =
-        `${percentage}%`;
+    healthBar.style.width = `${percentage}%`;
 
     healthText.textContent =
         `${health} / ${CONFIG.maxHealth}`;
@@ -268,11 +315,8 @@ function updateHealthUI() {
 
 function updateTimerUI() {
 
-    const minutes =
-        Math.floor(timeLeft / 60);
-
-    const seconds =
-        timeLeft % 60;
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
 
     timerEl.textContent =
         `${String(minutes).padStart(2, "0")}:` +
@@ -306,7 +350,6 @@ function startTimer() {
                 false,
                 "Se agotó el tiempo de la misión."
             );
-
         }
 
     }, 1000);
@@ -323,7 +366,6 @@ function startGame() {
     score = 0;
     shots = 0;
     hits = 0;
-
     lives = CONFIG.maxLives;
 
     gameState = "playing";
@@ -331,64 +373,70 @@ function startGame() {
     updateStats();
     updateLivesUI();
 
-    // Reactivar los disparos
     targetOverlay.style.pointerEvents = "auto";
 
-    // Cargar el primer nivel
     loadLevel(0);
 
-    // Ocultar mensaje inicial
     arenaMessage.classList.add("hidden");
 
-    // Iniciar reloj
+    actualizarMira();
+
     startTimer();
 }
 
 // ==========================================
-// DETECTAR DISPAROS
+// DETECTAR DISPAROS REALES SOBRE EL MODELO
 // ==========================================
+
 
 targetOverlay.addEventListener("click", event => {
 
     if (gameState !== "playing") return;
 
     shots++;
-
     playLaserSound();
 
-    // Obtener posición del clic
-    const rect =
-        viewerBox.getBoundingClientRect();
+    // Coordenadas relativas a la pantalla.
+    const screenX = event.clientX;
+    const screenY = event.clientY;
 
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    // Coordenadas relativas al contenedor para los efectos visuales.
+    const boxRect = viewerBox.getBoundingClientRect();
 
-    // Centro del visor
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
+    const effectX = screenX - boxRect.left;
+    const effectY = screenY - boxRect.top;
 
-    // Calcular distancia
-    const distance = Math.hypot(
-        x - centerX,
-        y - centerY
-    );
+    let surfaceHit = null;
 
-    // Radio de impacto
-    const hitRadius =
-        Math.min(rect.width * 0.25, 120);
+    try {
 
-    if (distance <= hitRadius) {
+        if (typeof modelViewer.positionAndNormalFromPoint === "function") {
 
-        registerHit(
-            x,
-            y,
-            distance,
-            hitRadius
-        );
+            // IMPORTANTE: enviar las coordenadas de pantalla.
+            surfaceHit = modelViewer.positionAndNormalFromPoint(
+                screenX,
+                screenY
+            );
+
+        }
+
+    } catch (error) {
+
+        console.error("Error al detectar el impacto:", error);
+
+    }
+
+    console.log("Resultado del disparo:", surfaceHit);
+
+    if (surfaceHit !== null && surfaceHit !== undefined) {
+
+        // Impacto sobre el enemigo.
+        registerHit(effectX, effectY, false);
 
     } else {
 
-        registerMiss(x, y);
+        // Disparo fuera del enemigo.
+        registerMiss(effectX, effectY);
 
     }
 
@@ -400,12 +448,9 @@ targetOverlay.addEventListener("click", event => {
 // PROCESAR DISPARO ACERTADO
 // ==========================================
 
-function registerHit(x, y, distance, hitRadius) {
+function registerHit(x, y, critical) {
 
     hits++;
-
-    const critical =
-        distance <= hitRadius * 0.25;
 
     const damage = critical
         ? CONFIG.criticalDamage
@@ -417,10 +462,7 @@ function registerHit(x, y, distance, hitRadius) {
 
     score += points;
 
-    health = Math.max(
-        0,
-        health - damage
-    );
+    health = Math.max(0, health - damage);
 
     updateHealthUI();
 
@@ -435,18 +477,15 @@ function registerHit(x, y, distance, hitRadius) {
         critical
     );
 
-    // Efecto de movimiento
+    // Efecto de movimiento.
     viewerBox.classList.remove("shake");
 
     void viewerBox.offsetWidth;
 
     viewerBox.classList.add("shake");
 
-    // Comprobar si el enemigo fue derrotado
     if (health <= 0) {
-
         defeatEnemy();
-
     }
 }
 
@@ -467,14 +506,12 @@ function registerMiss(x, y) {
         true
     );
 
-    // Comprobar si se terminaron las vidas
     if (lives <= 0) {
 
         endGame(
             false,
             "Te has quedado sin vidas."
         );
-
     }
 }
 
@@ -486,7 +523,6 @@ function defeatEnemy() {
 
     if (gameState !== "playing") return;
 
-    // Primer nivel
     if (currentLevel === 0) {
 
         targetStatus.textContent =
@@ -498,10 +534,11 @@ function defeatEnemy() {
 
         gameState = "transition";
 
-        targetOverlay.style.pointerEvents =
-            "none";
+        targetOverlay.style.pointerEvents = "none";
 
         clearInterval(timerInterval);
+
+        actualizarMira();
 
         arenaMessage.classList.remove("hidden");
 
@@ -515,12 +552,10 @@ function defeatEnemy() {
         startButton.textContent =
             "CONTINUAR AL NIVEL 2";
 
-        startButton.onclick =
-            startSecondLevel;
+        startButton.onclick = startSecondLevel;
 
     } else {
 
-        // Segundo nivel
         score += CONFIG.victoryBonus;
 
         updateStats();
@@ -530,7 +565,6 @@ function defeatEnemy() {
             "Has derrotado a los dos enemigos " +
             "y completado la misión."
         );
-
     }
 }
 
@@ -548,8 +582,9 @@ function startSecondLevel() {
 
     arenaMessage.classList.add("hidden");
 
-    targetOverlay.style.pointerEvents =
-        "auto";
+    targetOverlay.style.pointerEvents = "auto";
+
+    actualizarMira();
 
     startTimer();
 }
@@ -564,31 +599,22 @@ function endGame(victory, reason) {
 
     gameState = "finished";
 
-    targetOverlay.style.pointerEvents =
-        "none";
+    targetOverlay.style.pointerEvents = "none";
+
+    actualizarMira();
 
     arenaMessage.classList.remove("hidden");
 
-    if (victory) {
-
-        messageTitle.textContent =
-            "¡MISIÓN COMPLETADA!";
-
-    } else {
-
-        messageTitle.textContent =
-            "MISIÓN FALLIDA";
-
-    }
+    messageTitle.textContent = victory
+        ? "¡MISIÓN COMPLETADA!"
+        : "MISIÓN FALLIDA";
 
     messageText.textContent =
         `${reason} Puntuación final: ${score} puntos.`;
 
-    startButton.textContent =
-        "JUGAR DE NUEVO";
+    startButton.textContent = "JUGAR DE NUEVO";
 
-    startButton.onclick =
-        startGame;
+    startButton.onclick = startGame;
 
     targetStatus.textContent = victory
         ? "TODOS LOS OBJETIVOS ELIMINADOS"
@@ -601,8 +627,7 @@ function endGame(victory, reason) {
 
 function showImpact(x, y) {
 
-    const spark =
-        document.createElement("div");
+    const spark = document.createElement("div");
 
     spark.className = "impact-mark";
 
@@ -627,8 +652,7 @@ function showDamageText(
     critical = false
 ) {
 
-    const damage =
-        document.createElement("div");
+    const damage = document.createElement("div");
 
     damage.className = critical
         ? "damage-text critical"
@@ -667,26 +691,69 @@ function resetGame() {
 
     loadLevel(0);
 
-    targetOverlay.style.pointerEvents =
-        "auto";
+    targetOverlay.style.pointerEvents = "auto";
+
+    actualizarMira();
 
     arenaMessage.classList.remove("hidden");
 
-    messageTitle.textContent =
-        "SPACE TARGET 3D";
+    messageTitle.textContent = "SPACE TARGET 3D";
 
     messageText.textContent =
         "Tienes 3 vidas y 45 segundos por nivel. " +
         "Elimina a los dos enemigos para ganar.";
 
-    startButton.textContent =
-        "INICIAR PARTIDA";
+    startButton.textContent = "INICIAR PARTIDA";
 
-    startButton.onclick =
-        startGame;
+    startButton.onclick = startGame;
 
-    targetStatus.textContent =
-        "OBJETIVO DETECTADO";
+    targetStatus.textContent = "OBJETIVO DETECTADO";
+}
+
+// ==========================================
+// MOVIMIENTO LATERAL DEL ENEMIGO
+// ==========================================
+
+function moverEnemigo(tiempo) {
+
+    if (tiempoAnterior === 0) {
+        tiempoAnterior = tiempo;
+    }
+
+    const diferencia = tiempo - tiempoAnterior;
+
+    tiempoAnterior = tiempo;
+
+    // Movimiento pausado cuando no se está jugando.
+    if (gameState === "playing") {
+
+        const velocidad = 0.0008;
+        const amplitud = 1.2;
+
+        movimientoEnemigo +=
+            velocidad * diferencia * direccionEnemigo;
+
+        if (movimientoEnemigo >= amplitud) {
+
+            movimientoEnemigo = amplitud;
+            direccionEnemigo = -1;
+        }
+
+        if (movimientoEnemigo <= -amplitud) {
+
+            movimientoEnemigo = -amplitud;
+            direccionEnemigo = 1;
+        }
+    }
+
+    // Aplicar desplazamiento al modelo 3D.
+    if (modelViewer) {
+
+        modelViewer.style.transform =
+            `translateX(${movimientoEnemigo * 100}px)`;
+    }
+
+    animationFrame = requestAnimationFrame(moverEnemigo);
 }
 
 // ==========================================
@@ -695,58 +762,14 @@ function resetGame() {
 
 startButton.onclick = startGame;
 
-resetButton.addEventListener(
-    "click",
-    resetGame
-);
+resetButton.addEventListener("click", resetGame);
 
 updateStats();
-
 updateLivesUI();
 
 loadLevel(0);
 
+// Iniciar movimiento del enemigo.
+cancelAnimationFrame(animationFrame);
 
-/* ==========================================
-   MOVIMIENTO DEL ENEMIGO
-========================================== */
-
-let movimientoEnemigo = 0;
-let direccionEnemigo = 1;
-let tiempoAnterior = 0;
-
-function moverEnemigo(tiempo) {
-    const velocidad = 0.0008;
-    const amplitud = 1.2;
-
-    if (tiempoAnterior === 0) {
-        tiempoAnterior = tiempo;
-    }
-
-    const diferencia = tiempo - tiempoAnterior;
-    tiempoAnterior = tiempo;
-
-    movimientoEnemigo +=
-        velocidad * diferencia * direccionEnemigo;
-
-    if (movimientoEnemigo >= amplitud) {
-        movimientoEnemigo = amplitud;
-        direccionEnemigo = -1;
-    }
-
-    if (movimientoEnemigo <= -amplitud) {
-        movimientoEnemigo = -amplitud;
-        direccionEnemigo = 1;
-    }
-
-    const objetivo = document.getElementById("mainViewer");
-
-    if (objetivo) {
-        objetivo.style.transform =
-            `translateX(${movimientoEnemigo * 100}px)`;
-    }
-
-    requestAnimationFrame(moverEnemigo);
-}
-
-requestAnimationFrame(moverEnemigo);
+animationFrame = requestAnimationFrame(moverEnemigo);

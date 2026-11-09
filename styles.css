@@ -827,3 +827,13 @@ button {
         display: none;
     }
 }
+    /* El cursor del sistema se oculta durante la partida */
+    .viewer-box,
+    .target-overlay {
+        cursor: none;
+    }
+
+    /* La mira aparece solamente cuando se juega */
+    .crosshair.active {
+        display: block;
+    }
